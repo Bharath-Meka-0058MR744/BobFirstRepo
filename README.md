@@ -1,4 +1,4 @@
-# BobFirstWebAPP
+# BobFirstRepo
 
 A full-stack web application built with React.js for the frontend and Node.js/Express for the backend.
 
