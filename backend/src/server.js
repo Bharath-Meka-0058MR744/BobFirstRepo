@@ -23,6 +23,7 @@ app.get('/api', (req, res) => {
 
 // Routes
 app.use('/api/users', require('./routes/userRoutes'));
+app.use('/api/products', require('./routes/productRoutes'));
 
 // Serve static assets in production
 if (process.env.NODE_ENV === 'production') {
