@@ -92,4 +92,84 @@ exports.getProductsByCategory = async (req, res) => {
   }
 };
 
+// Add multiple products at once
+exports.addBulkProducts = async (req, res) => {
+  try {
+    const { products } = req.body;
+    
+    // Validate input is an array
+    if (!Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Request body must contain a non-empty products array'
+      });
+    }
+    
+    const validProducts = [];
+    const failures = [];
+    
+    // Process each product
+    for (const productData of products) {
+      // Extract and validate required fields
+      const { name, description, price, category, inStock, imageUrl } = productData;
+      
+      // Validate required fields
+      const errors = [];
+      if (!name) errors.push('Name is required');
+      if (!description) errors.push('Description is required');
+      if (price === undefined || price === null) errors.push('Price is required');
+      if (typeof price === 'number' && price < 0) errors.push('Price cannot be negative');
+      if (!category) errors.push('Category is required');
+      
+      if (errors.length > 0) {
+        failures.push({
+          product: productData,
+          errors
+        });
+        continue; // Skip this product and move to the next one
+      }
+      
+      // Prepare valid product for insertion
+      validProducts.push({
+        name,
+        description,
+        price,
+        category,
+        inStock: inStock !== undefined ? inStock : true,
+        imageUrl: imageUrl || 'default-product.jpg',
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+    }
+    
+    // If no valid products, return error
+    if (validProducts.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No valid products to add',
+        failures
+      });
+    }
+    
+    // Insert valid products into database
+    const savedProducts = await Product.insertMany(validProducts);
+    
+    // Determine response status based on failures
+    const status = failures.length > 0 ? 207 : 201;
+    
+    // Return response
+    res.status(status).json({
+      success: true,
+      count: savedProducts.length,
+      products: savedProducts,
+      ...(failures.length > 0 && { failures })
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 // Made with Bob

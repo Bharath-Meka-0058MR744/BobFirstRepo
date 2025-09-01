@@ -215,6 +215,237 @@ describe('Product Controller', () => {
       expect(res.json).toHaveBeenCalledWith(mockProducts);
     });
   });
+  
+  describe('addBulkProducts', () => {
+    it('should create multiple products and return 201', async () => {
+      // Mock request with multiple products
+      req.body = {
+        products: [
+          {
+            name: 'Product 1',
+            description: 'Description 1',
+            price: 19.99,
+            category: 'Electronics',
+            inStock: true,
+            imageUrl: 'image1.jpg'
+          },
+          {
+            name: 'Product 2',
+            description: 'Description 2',
+            price: 29.99,
+            category: 'Clothing',
+            inStock: false,
+            imageUrl: 'image2.jpg'
+          }
+        ]
+      };
+      
+      // Mock the Product.insertMany method
+      const mockSavedProducts = req.body.products.map((product, index) => ({
+        _id: `product${index}Id`,
+        ...product
+      }));
+      
+      Product.insertMany = jest.fn().mockResolvedValue(mockSavedProducts);
+      
+      // Call the controller method
+      await productController.addBulkProducts(req, res);
+      
+      // Assertions
+      expect(Product.insertMany).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: 'Product 1',
+            description: 'Description 1',
+            price: 19.99,
+            category: 'Electronics'
+          }),
+          expect.objectContaining({
+            name: 'Product 2',
+            description: 'Description 2',
+            price: 29.99,
+            category: 'Clothing'
+          })
+        ])
+      );
+      expect(res.status).toHaveBeenCalledWith(201);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        success: true,
+        count: 2,
+        products: mockSavedProducts
+      }));
+    });
+    
+    it('should return 400 if products array is missing or empty', async () => {
+      // Test with missing products array
+      req.body = {};
+      await productController.addBulkProducts(req, res);
+      
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        success: false,
+        message: expect.stringContaining('products array')
+      }));
+      
+      // Reset mock
+      jest.clearAllMocks();
+      
+      // Test with empty products array
+      req.body = { products: [] };
+      await productController.addBulkProducts(req, res);
+      
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        success: false,
+        message: expect.stringContaining('products array')
+      }));
+    });
+    
+    it('should handle partial success with valid and invalid products', async () => {
+      // Mock request with valid and invalid products
+      req.body = {
+        products: [
+          {
+            name: 'Valid Product',
+            description: 'Valid Description',
+            price: 19.99,
+            category: 'Electronics'
+          },
+          {
+            // Missing required fields
+            name: 'Invalid Product',
+            price: -5 // Invalid price
+          }
+        ]
+      };
+      
+      // Mock the Product.insertMany method for the valid product
+      const mockSavedProduct = {
+        _id: 'validProductId',
+        ...req.body.products[0]
+      };
+      
+      Product.insertMany = jest.fn().mockResolvedValue([mockSavedProduct]);
+      
+      // Call the controller method
+      await productController.addBulkProducts(req, res);
+      
+      // Assertions
+      expect(Product.insertMany).toHaveBeenCalledWith([
+        expect.objectContaining({
+          name: 'Valid Product',
+          description: 'Valid Description',
+          price: 19.99,
+          category: 'Electronics'
+        })
+      ]);
+      expect(res.status).toHaveBeenCalledWith(207); // Multi-Status
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        success: true,
+        count: 1,
+        products: [mockSavedProduct],
+        failures: expect.arrayContaining([
+          expect.objectContaining({
+            product: req.body.products[1],
+            errors: expect.arrayContaining([
+              expect.any(String) // At least one error message
+            ])
+          })
+        ])
+      }));
+    });
+    
+    it('should validate each product and report specific validation errors', async () => {
+      // Mock request with products having different validation issues
+      req.body = {
+        products: [
+          {
+            // Missing name
+            description: 'Description 1',
+            price: 19.99,
+            category: 'Electronics'
+          },
+          {
+            name: 'Product 2',
+            // Missing description
+            price: 29.99,
+            category: 'Clothing'
+          },
+          {
+            name: 'Product 3',
+            description: 'Description 3',
+            // Negative price
+            price: -10,
+            category: 'Books'
+          },
+          {
+            name: 'Product 4',
+            description: 'Description 4',
+            price: 39.99
+            // Missing category
+          }
+        ]
+      };
+      
+      // No valid products, so insertMany won't be called
+      
+      // Call the controller method
+      await productController.addBulkProducts(req, res);
+      
+      // Assertions
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        success: false,
+        message: expect.stringContaining('No valid products'),
+        failures: expect.arrayContaining([
+          expect.objectContaining({
+            product: req.body.products[0],
+            errors: expect.arrayContaining(['Name is required'])
+          }),
+          expect.objectContaining({
+            product: req.body.products[1],
+            errors: expect.arrayContaining(['Description is required'])
+          }),
+          expect.objectContaining({
+            product: req.body.products[2],
+            errors: expect.arrayContaining(['Price cannot be negative'])
+          }),
+          expect.objectContaining({
+            product: req.body.products[3],
+            errors: expect.arrayContaining(['Category is required'])
+          })
+        ])
+      }));
+    });
+    
+    it('should handle database errors and return 500', async () => {
+      // Mock request with valid products
+      req.body = {
+        products: [
+          {
+            name: 'Product 1',
+            description: 'Description 1',
+            price: 19.99,
+            category: 'Electronics'
+          }
+        ]
+      };
+      
+      // Mock database error
+      const errorMessage = 'Database error';
+      Product.insertMany = jest.fn().mockRejectedValue(new Error(errorMessage));
+      
+      // Call the controller method
+      await productController.addBulkProducts(req, res);
+      
+      // Assertions
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        success: false,
+        message: errorMessage
+      }));
+    });
+  });
 });
 
 // Made with Bob

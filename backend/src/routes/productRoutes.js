@@ -14,6 +14,9 @@ router.get('/category/:category', productController.getProductsByCategory);
 // POST create new product
 router.post('/', productController.createProduct);
 
+// POST create multiple products at once
+router.post('/bulk', productController.addBulkProducts);
+
 // PUT update product
 router.put('/:id', productController.updateProduct);
 
