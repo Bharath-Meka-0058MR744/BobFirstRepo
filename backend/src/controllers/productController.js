@@ -93,6 +93,52 @@ exports.getProductsByCategory = async (req, res) => {
 };
 
 // Add multiple products at once
+/**
+ * @api {post} /api/products/bulk Add multiple products
+ * @apiName AddBulkProducts
+ * @apiGroup Products
+ * @apiDescription Creates multiple products in a single request
+ *
+ * @apiParam {Array} products Array of product objects
+ * @apiParam {String} products.name Product name
+ * @apiParam {String} products.description Product description
+ * @apiParam {Number} products.price Product price in US dollars (up to 2 decimal places)
+ * @apiParam {String} products.category Product category
+ * @apiParam {Boolean} [products.inStock=true] Whether the product is in stock
+ * @apiParam {String} [products.imageUrl='default-product.jpg'] URL to product image
+ *
+ * @apiSuccess {Boolean} success Indicates if the operation was successful
+ * @apiSuccess {Number} count Number of products created
+ * @apiSuccess {Array} products Array of created products
+ * @apiSuccess {Array} [failures] Array of products that failed validation (if any)
+ *
+ * @apiSuccessExample {json} Success-Response (201 Created):
+ *     HTTP/1.1 201 Created
+ *     {
+ *       "success": true,
+ *       "count": 2,
+ *       "products": [
+ *         {
+ *           "_id": "60d21b4667d0d8992e610c85",
+ *           "name": "Product 1",
+ *           "description": "Description for product 1",
+ *           "price": 19.99,
+ *           "category": "Electronics",
+ *           "inStock": true,
+ *           "imageUrl": "product1.jpg"
+ *         },
+ *         {
+ *           "_id": "60d21b4667d0d8992e610c86",
+ *           "name": "Product 2",
+ *           "description": "Description for product 2",
+ *           "price": 29.99,
+ *           "category": "Clothing",
+ *           "inStock": false,
+ *           "imageUrl": "product2.jpg"
+ *         }
+ *       ]
+ *     }
+ */
 exports.addBulkProducts = async (req, res) => {
   try {
     const { products } = req.body;
@@ -119,6 +165,12 @@ exports.addBulkProducts = async (req, res) => {
       if (!description) errors.push('Description is required');
       if (price === undefined || price === null) errors.push('Price is required');
       if (typeof price === 'number' && price < 0) errors.push('Price cannot be negative');
+      
+      // Validate price format for US dollars (two decimal places)
+      if (typeof price === 'number' && Math.round(price * 100) / 100 !== price) {
+        errors.push('Price must be in US dollars format (up to two decimal places)');
+      }
+      
       if (!category) errors.push('Category is required');
       
       if (errors.length > 0) {

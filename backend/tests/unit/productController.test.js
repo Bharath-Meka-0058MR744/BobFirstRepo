@@ -383,6 +383,13 @@ describe('Product Controller', () => {
             description: 'Description 4',
             price: 39.99
             // Missing category
+          },
+          {
+            name: 'Product 5',
+            description: 'Description 5',
+            // Invalid price format (more than 2 decimal places)
+            price: 49.999,
+            category: 'Electronics'
           }
         ]
       };
@@ -413,6 +420,65 @@ describe('Product Controller', () => {
           expect.objectContaining({
             product: req.body.products[3],
             errors: expect.arrayContaining(['Category is required'])
+          }),
+          expect.objectContaining({
+            product: req.body.products[4],
+            errors: expect.arrayContaining(['Price must be in US dollars format (up to two decimal places)'])
+          })
+        ])
+      }));
+    });
+    
+    it('should validate price format for US dollars', async () => {
+      // Mock request with products having price format issues
+      req.body = {
+        products: [
+          {
+            name: 'Valid Product',
+            description: 'Valid Description',
+            price: 19.99, // Valid price (two decimal places)
+            category: 'Electronics'
+          },
+          {
+            name: 'Invalid Price Product',
+            description: 'Invalid Price Description',
+            price: 29.999, // Invalid price (three decimal places)
+            category: 'Clothing'
+          }
+        ]
+      };
+      
+      // Mock the Product.insertMany method for the valid product
+      const mockSavedProduct = {
+        _id: 'validProductId',
+        ...req.body.products[0]
+      };
+      
+      Product.insertMany = jest.fn().mockResolvedValue([mockSavedProduct]);
+      
+      // Call the controller method
+      await productController.addBulkProducts(req, res);
+      
+      // Assertions
+      expect(Product.insertMany).toHaveBeenCalledWith([
+        expect.objectContaining({
+          name: 'Valid Product',
+          description: 'Valid Description',
+          price: 19.99,
+          category: 'Electronics'
+        })
+      ]);
+      expect(res.status).toHaveBeenCalledWith(207); // Multi-Status
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        success: true,
+        count: 1,
+        products: [mockSavedProduct],
+        failures: expect.arrayContaining([
+          expect.objectContaining({
+            product: req.body.products[1],
+            errors: expect.arrayContaining([
+              'Price must be in US dollars format (up to two decimal places)'
+            ])
           })
         ])
       }));
