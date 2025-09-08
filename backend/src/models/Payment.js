@@ -4,7 +4,13 @@ const paymentSchema = new mongoose.Schema({
   orderId: {
     type: String,
     required: true,
-    unique: true
+    unique: true,
+    validate: {
+      validator: function(v) {
+        return /^ORDER-[A-Z0-9]{6,12}$/.test(v);
+      },
+      message: props => `${props.value} is not a valid order ID format! Format should be ORDER-XXXXXX where X is alphanumeric`
+    }
   },
   userId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -14,7 +20,15 @@ const paymentSchema = new mongoose.Schema({
   amount: {
     type: Number,
     required: true,
-    min: [0.01, 'Amount must be at least 0.01']
+    min: [0.01, 'Amount must be at least 0.01'],
+    max: [1000000, 'Amount cannot exceed 1,000,000'],
+    validate: {
+      validator: function(v) {
+        // Check that amount has at most 2 decimal places
+        return /^\d+(\.\d{1,2})?$/.test(v.toString());
+      },
+      message: props => `${props.value} is not a valid amount format! Amount can have at most 2 decimal places`
+    }
   },
   currency: {
     type: String,
@@ -25,7 +39,10 @@ const paymentSchema = new mongoose.Schema({
   paymentMethod: {
     type: String,
     required: true,
-    enum: ['credit_card', 'debit_card', 'paypal', 'bank_transfer', 'crypto', 'cash_on_delivery']
+    enum: {
+      values: ['credit_card', 'debit_card', 'paypal', 'bank_transfer', 'crypto', 'cash_on_delivery'],
+      message: '{VALUE} is not a supported payment method'
+    }
   },
   paymentDetails: {
     cardType: {
@@ -70,17 +87,52 @@ const paymentSchema = new mongoose.Schema({
   transactionId: {
     type: String,
     unique: true,
-    sparse: true
+    sparse: true,
+    validate: {
+      validator: function(v) {
+        return v === null || v === undefined || /^TXN-[A-Z0-9]{6,15}$/.test(v);
+      },
+      message: props => `${props.value} is not a valid transaction ID format! Format should be TXN-XXXXXX where X is alphanumeric`
+    }
   },
   gatewayResponse: {
     type: Object,
     default: {}
   },
   refundDetails: {
-    refundId: { type: String, default: null },
-    refundAmount: { type: Number, default: null },
+    refundId: {
+      type: String,
+      default: null,
+      validate: {
+        validator: function(v) {
+          return v === null || /^REF-[A-Z0-9]{6,15}$/.test(v);
+        },
+        message: props => `${props.value} is not a valid refund ID format! Format should be REF-XXXXXX where X is alphanumeric`
+      }
+    },
+    refundAmount: {
+      type: Number,
+      default: null,
+      validate: {
+        validator: function(v) {
+          if (v === null) return true;
+          // Check that refund amount is positive and not greater than original amount
+          return v > 0 && v <= this.amount;
+        },
+        message: props => `Refund amount must be positive and not exceed the original payment amount`
+      }
+    },
     refundDate: { type: Date, default: null },
-    refundReason: { type: String, default: null }
+    refundReason: {
+      type: String,
+      default: null,
+      validate: {
+        validator: function(v) {
+          return v === null || (v.length >= 5 && v.length <= 500);
+        },
+        message: props => `Refund reason must be between 5 and 500 characters`
+      }
+    }
   },
   metadata: {
     type: Map,

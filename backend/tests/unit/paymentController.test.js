@@ -85,13 +85,16 @@ describe('Payment Controller', () => {
     it('should create a new payment', async () => {
       const userId = new mongoose.Types.ObjectId();
       const paymentData = {
-        orderId: 'ORDER-123',
+        orderId: 'ORDER-123456',
         userId,
         amount: 99.99,
-        paymentMethod: 'credit_card'
+        paymentMethod: 'credit_card',
+        paymentDetails: {
+          lastFourDigits: '4242'
+        }
       };
       
-      const savedPayment = { 
+      const savedPayment = {
         _id: 'payment123',
         ...paymentData
       };
@@ -118,10 +121,13 @@ describe('Payment Controller', () => {
       const userId = new mongoose.Types.ObjectId();
       
       req.body = {
-        orderId: 'ORDER-123',
+        orderId: 'ORDER-123456',
         userId,
         amount: 99.99,
-        paymentMethod: 'credit_card'
+        paymentMethod: 'credit_card',
+        paymentDetails: {
+          lastFourDigits: '4242'
+        }
       };
       
       User.findById.mockResolvedValue(null);
@@ -135,13 +141,16 @@ describe('Payment Controller', () => {
     
     it('should return 400 if payment with order ID already exists', async () => {
       const userId = new mongoose.Types.ObjectId();
-      const orderId = 'ORDER-123';
+      const orderId = 'ORDER-123456';
       
       req.body = {
         orderId,
         userId,
         amount: 99.99,
-        paymentMethod: 'credit_card'
+        paymentMethod: 'credit_card',
+        paymentDetails: {
+          lastFourDigits: '4242'
+        }
       };
       
       User.findById.mockResolvedValue({ _id: userId });
@@ -154,6 +163,91 @@ describe('Payment Controller', () => {
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({ message: 'Payment with this order ID already exists' });
     });
+    
+    it('should return 400 if card payment is missing required details', async () => {
+      const userId = new mongoose.Types.ObjectId();
+      
+      req.body = {
+        orderId: 'ORDER-123456',
+        userId,
+        amount: 99.99,
+        paymentMethod: 'credit_card',
+        // Missing paymentDetails.lastFourDigits
+        paymentDetails: {}
+      };
+      
+      User.findById.mockResolvedValue({ _id: userId });
+      Payment.findOne.mockResolvedValue(null);
+      
+      await paymentController.createPayment(req, res);
+      
+      expect(User.findById).toHaveBeenCalledWith(userId);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        message: 'Validation failed',
+        errors: { paymentDetails: 'Last four digits are required for card payments' }
+      });
+    });
+    
+    it('should return 400 if transaction ID format is invalid', async () => {
+      const userId = new mongoose.Types.ObjectId();
+      
+      req.body = {
+        orderId: 'ORDER-123456',
+        userId,
+        amount: 99.99,
+        paymentMethod: 'paypal',
+        transactionId: 'invalid-format'
+      };
+      
+      User.findById.mockResolvedValue({ _id: userId });
+      Payment.findOne.mockResolvedValue(null);
+      
+      await paymentController.createPayment(req, res);
+      
+      expect(User.findById).toHaveBeenCalledWith(userId);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        message: 'Validation failed',
+        errors: { transactionId: 'Invalid transaction ID format. Format should be TXN-XXXXXX where X is alphanumeric' }
+      });
+    });
+    
+    it('should handle mongoose validation errors', async () => {
+      const userId = new mongoose.Types.ObjectId();
+      
+      req.body = {
+        orderId: 'ORDER-123456',
+        userId,
+        amount: 99.99,
+        paymentMethod: 'credit_card',
+        paymentDetails: {
+          lastFourDigits: '4242'
+        }
+      };
+      
+      User.findById.mockResolvedValue({ _id: userId });
+      Payment.findOne.mockResolvedValue(null);
+      
+      const validationError = new Error('Validation error');
+      validationError.name = 'ValidationError';
+      validationError.errors = {
+        amount: { message: 'Amount must be at least 0.01' }
+      };
+      
+      const mockSave = jest.fn().mockRejectedValue(validationError);
+      Payment.mockImplementation(() => ({
+        save: mockSave
+      }));
+      
+      await paymentController.createPayment(req, res);
+      
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        message: 'Validation failed',
+        errors: { amount: 'Amount must be at least 0.01' }
+      });
+    });
   });
   
   describe('updatePaymentStatus', () => {
@@ -164,24 +258,77 @@ describe('Payment Controller', () => {
         status: 'pending',
         save: jest.fn().mockResolvedValue({
           _id: paymentId,
-          status: 'completed'
+          status: 'processing'
         })
       };
       
       req.params.id = paymentId;
-      req.body = { status: 'completed' };
+      req.body = { status: 'processing' };
       
       Payment.findById.mockResolvedValue(mockPayment);
       
       await paymentController.updatePaymentStatus(req, res);
       
       expect(Payment.findById).toHaveBeenCalledWith(paymentId);
-      expect(mockPayment.status).toBe('completed');
+      expect(mockPayment.status).toBe('processing');
       expect(mockPayment.save).toHaveBeenCalled();
       expect(res.json).toHaveBeenCalledWith({
         _id: paymentId,
-        status: 'completed'
+        status: 'processing'
       });
+    });
+    
+    it('should return 400 for invalid status transition', async () => {
+      const paymentId = 'payment123';
+      const mockPayment = {
+        _id: paymentId,
+        status: 'pending',
+        save: jest.fn()
+      };
+      
+      req.params.id = paymentId;
+      req.body = { status: 'refunded' }; // Invalid transition from pending to refunded
+      
+      Payment.findById.mockResolvedValue(mockPayment);
+      
+      await paymentController.updatePaymentStatus(req, res);
+      
+      expect(Payment.findById).toHaveBeenCalledWith(paymentId);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        message: 'Invalid status transition',
+        currentStatus: 'pending',
+        requestedStatus: 'refunded',
+        allowedTransitions: ['processing', 'cancelled', 'failed']
+      });
+      expect(mockPayment.save).not.toHaveBeenCalled();
+    });
+    
+    it('should return 400 if transaction ID format is invalid', async () => {
+      const paymentId = 'payment123';
+      const mockPayment = {
+        _id: paymentId,
+        status: 'pending',
+        save: jest.fn()
+      };
+      
+      req.params.id = paymentId;
+      req.body = {
+        status: 'processing',
+        transactionId: 'invalid-format'
+      };
+      
+      Payment.findById.mockResolvedValue(mockPayment);
+      
+      await paymentController.updatePaymentStatus(req, res);
+      
+      expect(Payment.findById).toHaveBeenCalledWith(paymentId);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        message: 'Validation failed',
+        errors: { transactionId: 'Invalid transaction ID format. Format should be TXN-XXXXXX where X is alphanumeric' }
+      });
+      expect(mockPayment.save).not.toHaveBeenCalled();
     });
   });
   
@@ -190,13 +337,13 @@ describe('Payment Controller', () => {
       const paymentId = 'payment123';
       const mockPayment = {
         _id: paymentId,
-        orderId: 'ORDER-123',
+        orderId: 'ORDER-123456',
         amount: 99.99,
         currency: 'USD',
         status: 'completed',
         generateReceipt: jest.fn().mockReturnValue({
           receiptId: `RCPT-${paymentId}`,
-          orderId: 'ORDER-123',
+          orderId: 'ORDER-123456',
           amount: 99.99,
           currency: 'USD'
         })
@@ -212,10 +359,135 @@ describe('Payment Controller', () => {
       expect(mockPayment.generateReceipt).toHaveBeenCalled();
       expect(res.json).toHaveBeenCalledWith({
         receiptId: `RCPT-${paymentId}`,
-        orderId: 'ORDER-123',
+        orderId: 'ORDER-123456',
         amount: 99.99,
         currency: 'USD'
       });
+    });
+  });
+  
+  describe('processRefund', () => {
+    it('should process a refund for a completed payment', async () => {
+      const paymentId = 'payment123';
+      const mockPayment = {
+        _id: paymentId,
+        orderId: 'ORDER-123456',
+        amount: 99.99,
+        status: 'completed',
+        save: jest.fn().mockImplementation(function() {
+          return Promise.resolve(this);
+        })
+      };
+      
+      req.params.id = paymentId;
+      req.body = {
+        refundAmount: 99.99,
+        refundReason: 'Customer request'
+      };
+      
+      Payment.findById.mockResolvedValue(mockPayment);
+      
+      await paymentController.processRefund(req, res);
+      
+      expect(Payment.findById).toHaveBeenCalledWith(paymentId);
+      expect(mockPayment.status).toBe('refunded');
+      expect(mockPayment.refundDetails).toBeDefined();
+      expect(mockPayment.refundDetails.refundAmount).toBe(99.99);
+      expect(mockPayment.refundDetails.refundReason).toBe('Customer request');
+      expect(mockPayment.save).toHaveBeenCalled();
+    });
+    
+    it('should return 400 if payment is not in completed status', async () => {
+      const paymentId = 'payment123';
+      const mockPayment = {
+        _id: paymentId,
+        orderId: 'ORDER-123456',
+        amount: 99.99,
+        status: 'pending',
+        save: jest.fn()
+      };
+      
+      req.params.id = paymentId;
+      req.body = {
+        refundAmount: 99.99,
+        refundReason: 'Customer request'
+      };
+      
+      Payment.findById.mockResolvedValue(mockPayment);
+      
+      await paymentController.processRefund(req, res);
+      
+      expect(Payment.findById).toHaveBeenCalledWith(paymentId);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        message: 'Only completed payments can be refunded',
+        currentStatus: 'pending'
+      });
+      expect(mockPayment.save).not.toHaveBeenCalled();
+    });
+    
+    it('should return 400 if refund amount exceeds original payment amount', async () => {
+      const paymentId = 'payment123';
+      const mockPayment = {
+        _id: paymentId,
+        orderId: 'ORDER-123456',
+        amount: 99.99,
+        status: 'completed',
+        save: jest.fn()
+      };
+      
+      req.params.id = paymentId;
+      req.body = {
+        refundAmount: 150.00, // Exceeds original amount
+        refundReason: 'Customer request'
+      };
+      
+      Payment.findById.mockResolvedValue(mockPayment);
+      
+      await paymentController.processRefund(req, res);
+      
+      expect(Payment.findById).toHaveBeenCalledWith(paymentId);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        message: 'Invalid refund amount',
+        maxRefundAmount: 99.99
+      });
+      expect(mockPayment.save).not.toHaveBeenCalled();
+    });
+    
+    it('should return 400 if payment has already been refunded', async () => {
+      const paymentId = 'payment123';
+      const mockPayment = {
+        _id: paymentId,
+        orderId: 'ORDER-123456',
+        amount: 99.99,
+        status: 'completed',
+        refundDetails: {
+          refundId: 'REF-123456',
+          refundAmount: 99.99,
+          refundDate: new Date(),
+          refundReason: 'Previous refund'
+        },
+        save: jest.fn()
+      };
+      
+      req.params.id = paymentId;
+      req.body = {
+        refundAmount: 99.99,
+        refundReason: 'Customer request'
+      };
+      
+      Payment.findById.mockResolvedValue(mockPayment);
+      
+      await paymentController.processRefund(req, res);
+      
+      expect(Payment.findById).toHaveBeenCalledWith(paymentId);
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({
+        message: 'This payment has already been refunded',
+        refundDetails: mockPayment.refundDetails
+      });
+      expect(mockPayment.save).not.toHaveBeenCalled();
     });
   });
 });

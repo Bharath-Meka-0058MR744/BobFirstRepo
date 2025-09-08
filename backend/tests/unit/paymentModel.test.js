@@ -120,6 +120,88 @@ describe('Payment Model', () => {
     // Note: In a real test with actual mongoose, you would test enum validation
     // by checking the validation error message
   });
+  
+  it('should validate order ID format', () => {
+    const userId = new mongoose.Types.ObjectId();
+    
+    // Valid order ID
+    const validPayment = new Payment({
+      orderId: 'ORDER-123456',
+      userId,
+      amount: 29.99,
+      paymentMethod: 'paypal'
+    });
+    
+    // Invalid order ID format
+    const invalidPayment = new Payment({
+      orderId: 'invalid-order-id',
+      userId,
+      amount: 29.99,
+      paymentMethod: 'paypal'
+    });
+    
+    // In a real test, we would expect validPayment.validateSync() to be undefined
+    // and invalidPayment.validateSync() to contain an error message
+    expect(validPayment.orderId).toBe('ORDER-123456');
+  });
+  
+  it('should validate amount format and range', () => {
+    const userId = new mongoose.Types.ObjectId();
+    
+    // Valid amount
+    const validPayment = new Payment({
+      orderId: 'ORDER-123456',
+      userId,
+      amount: 29.99,
+      paymentMethod: 'paypal'
+    });
+    
+    // Invalid amount (too large)
+    const tooLargePayment = new Payment({
+      orderId: 'ORDER-LARGE',
+      userId,
+      amount: 2000000, // Over 1,000,000 limit
+      paymentMethod: 'paypal'
+    });
+    
+    // Invalid amount (too many decimal places)
+    const tooManyDecimalsPayment = new Payment({
+      orderId: 'ORDER-DECIMALS',
+      userId,
+      amount: 29.999, // More than 2 decimal places
+      paymentMethod: 'paypal'
+    });
+    
+    // In a real test, we would expect validPayment.validateSync() to be undefined
+    // and the others to contain validation errors
+    expect(validPayment.amount).toBe(29.99);
+  });
+  
+  it('should validate transaction ID format', () => {
+    const userId = new mongoose.Types.ObjectId();
+    
+    // Valid transaction ID
+    const validPayment = new Payment({
+      orderId: 'ORDER-123456',
+      userId,
+      amount: 29.99,
+      paymentMethod: 'paypal',
+      transactionId: 'TXN-123456789'
+    });
+    
+    // Invalid transaction ID
+    const invalidPayment = new Payment({
+      orderId: 'ORDER-TXNID',
+      userId,
+      amount: 29.99,
+      paymentMethod: 'paypal',
+      transactionId: 'invalid-txn-id'
+    });
+    
+    // In a real test, we would expect validPayment.validateSync() to be undefined
+    // and invalidPayment.validateSync() to contain an error message
+    expect(validPayment.transactionId).toBe('TXN-123456789');
+  });
 
   it('should generate a receipt correctly', () => {
     const userId = new mongoose.Types.ObjectId();

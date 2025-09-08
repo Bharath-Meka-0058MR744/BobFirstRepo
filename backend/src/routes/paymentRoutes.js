@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const paymentController = require('../controllers/paymentController');
+const { validatePaymentInput, validateRefundInput, validateStatusUpdate } = require('../middleware/paymentValidation');
 
 // Get all payments
 router.get('/', paymentController.getAllPayments);
@@ -18,13 +19,13 @@ router.get('/:id', paymentController.getPaymentById);
 router.get('/:id/receipt', paymentController.generateReceipt);
 
 // Create a new payment
-router.post('/', paymentController.createPayment);
+router.post('/', validatePaymentInput, paymentController.createPayment);
 
 // Update payment status
-router.patch('/:id/status', paymentController.updatePaymentStatus);
+router.patch('/:id/status', validateStatusUpdate, paymentController.updatePaymentStatus);
 
 // Process refund
-router.post('/:id/refund', paymentController.processRefund);
+router.post('/:id/refund', validateRefundInput, paymentController.processRefund);
 
 module.exports = router;
 

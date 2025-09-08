@@ -70,6 +70,24 @@ exports.createPayment = async (req, res) => {
       return res.status(400).json({ message: 'Payment with this order ID already exists' });
     }
     
+    // Additional validations
+    if (paymentMethod === 'credit_card' || paymentMethod === 'debit_card') {
+      if (!paymentDetails || !paymentDetails.lastFourDigits) {
+        return res.status(400).json({
+          message: 'Validation failed',
+          errors: { paymentDetails: 'Last four digits are required for card payments' }
+        });
+      }
+    }
+    
+    // Validate transaction ID format if provided
+    if (transactionId && !/^TXN-[A-Z0-9]{6,15}$/.test(transactionId)) {
+      return res.status(400).json({
+        message: 'Validation failed',
+        errors: { transactionId: 'Invalid transaction ID format. Format should be TXN-XXXXXX where X is alphanumeric' }
+      });
+    }
+    
     const payment = new Payment({
       orderId,
       userId,
@@ -83,8 +101,25 @@ exports.createPayment = async (req, res) => {
       metadata
     });
     
-    const savedPayment = await payment.save();
-    res.status(201).json(savedPayment);
+    try {
+      const savedPayment = await payment.save();
+      res.status(201).json(savedPayment);
+    } catch (validationError) {
+      // Handle mongoose validation errors
+      if (validationError.name === 'ValidationError') {
+        const errors = {};
+        
+        for (const field in validationError.errors) {
+          errors[field] = validationError.errors[field].message;
+        }
+        
+        return res.status(400).json({
+          message: 'Validation failed',
+          errors
+        });
+      }
+      throw validationError; // Re-throw if it's not a validation error
+    }
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -101,14 +136,49 @@ exports.updatePaymentStatus = async (req, res) => {
       return res.status(404).json({ message: 'Payment not found' });
     }
     
+    // Validate status transition
+    if (!isValidStatusTransition(payment.status, status)) {
+      return res.status(400).json({
+        message: 'Invalid status transition',
+        currentStatus: payment.status,
+        requestedStatus: status,
+        allowedTransitions: getAllowedStatusTransitions(payment.status)
+      });
+    }
+    
+    // Validate transaction ID format if provided
+    if (transactionId && !/^TXN-[A-Z0-9]{6,15}$/.test(transactionId)) {
+      return res.status(400).json({
+        message: 'Validation failed',
+        errors: { transactionId: 'Invalid transaction ID format. Format should be TXN-XXXXXX where X is alphanumeric' }
+      });
+    }
+    
     // Update payment fields
     payment.status = status;
     if (transactionId) payment.transactionId = transactionId;
     if (gatewayResponse) payment.gatewayResponse = gatewayResponse;
     payment.updatedAt = Date.now();
     
-    const updatedPayment = await payment.save();
-    res.json(updatedPayment);
+    try {
+      const updatedPayment = await payment.save();
+      res.json(updatedPayment);
+    } catch (validationError) {
+      // Handle mongoose validation errors
+      if (validationError.name === 'ValidationError') {
+        const errors = {};
+        
+        for (const field in validationError.errors) {
+          errors[field] = validationError.errors[field].message;
+        }
+        
+        return res.status(400).json({
+          message: 'Validation failed',
+          errors
+        });
+      }
+      throw validationError; // Re-throw if it's not a validation error
+    }
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -127,32 +197,60 @@ exports.processRefund = async (req, res) => {
     
     // Check if payment is completed
     if (payment.status !== 'completed') {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: 'Only completed payments can be refunded',
         currentStatus: payment.status
       });
     }
     
+    // Check if payment has already been refunded
+    if (payment.refundDetails && payment.refundDetails.refundId) {
+      return res.status(400).json({
+        message: 'This payment has already been refunded',
+        refundDetails: payment.refundDetails
+      });
+    }
+    
     // Check if refund amount is valid
     if (refundAmount <= 0 || refundAmount > payment.amount) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: 'Invalid refund amount',
         maxRefundAmount: payment.amount
       });
     }
     
+    // Generate a unique refund ID
+    const refundId = `REF-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    
     // Process refund (in a real app, this would interact with a payment gateway)
     payment.status = 'refunded';
     payment.refundDetails = {
-      refundId: `REF-${Date.now()}`,
+      refundId,
       refundAmount,
       refundDate: Date.now(),
       refundReason: refundReason || 'Customer request'
     };
     payment.updatedAt = Date.now();
     
-    const updatedPayment = await payment.save();
-    res.json(updatedPayment);
+    try {
+      const updatedPayment = await payment.save();
+      res.json(updatedPayment);
+    } catch (validationError) {
+      // Handle mongoose validation errors
+      if (validationError.name === 'ValidationError') {
+        const errors = {};
+        
+        for (const field in validationError.errors) {
+          errors[field] = validationError.errors[field].message;
+        }
+        
+        return res.status(400).json({
+          message: 'Validation failed',
+          errors
+        });
+      }
+      throw validationError; // Re-throw if it's not a validation error
+    }
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -203,5 +301,33 @@ exports.getPaymentStats = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// Helper function to validate payment status transitions
+function isValidStatusTransition(currentStatus, newStatus) {
+  const statusTransitions = {
+    'pending': ['processing', 'cancelled', 'failed'],
+    'processing': ['completed', 'failed'],
+    'completed': ['refunded'],
+    'failed': ['pending'],
+    'refunded': [],
+    'cancelled': ['pending']
+  };
+  
+  return statusTransitions[currentStatus]?.includes(newStatus) || false;
+}
+
+// Helper function to get allowed status transitions
+function getAllowedStatusTransitions(currentStatus) {
+  const statusTransitions = {
+    'pending': ['processing', 'cancelled', 'failed'],
+    'processing': ['completed', 'failed'],
+    'completed': ['refunded'],
+    'failed': ['pending'],
+    'refunded': [],
+    'cancelled': ['pending']
+  };
+  
+  return statusTransitions[currentStatus] || [];
+}
 
 // Made with Bob
