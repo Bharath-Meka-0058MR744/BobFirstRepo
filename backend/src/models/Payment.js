@@ -34,7 +34,15 @@ const paymentSchema = new mongoose.Schema({
     type: String,
     required: true,
     default: 'USD',
-    enum: ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'CAD', 'AUD']
+    enum: ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'CAD', 'AUD', 'CNY', 'CHF', 'SGD', 'NZD', 'MXN', 'BRL', 'ZAR', 'HKD', 'SEK', 'NOK', 'DKK', 'AED', 'SAR'],
+    validate: {
+      validator: function(v) {
+        // This is a redundant check with enum, but allows for a custom error message
+        const validCurrencies = ['USD', 'EUR', 'GBP', 'INR', 'JPY', 'CAD', 'AUD', 'CNY', 'CHF', 'SGD', 'NZD', 'MXN', 'BRL', 'ZAR', 'HKD', 'SEK', 'NOK', 'DKK', 'AED', 'SAR'];
+        return validCurrencies.includes(v);
+      },
+      message: props => `${props.value} is not a supported currency`
+    }
   },
   paymentMethod: {
     type: String,
@@ -176,6 +184,28 @@ paymentSchema.statics.findByUser = function(userId) {
 // Static method to find recent payments
 paymentSchema.statics.findRecent = function(limit = 10) {
   return this.find().sort({ createdAt: -1 }).limit(limit);
+};
+
+// Add method to convert amount to a different currency
+paymentSchema.methods.getAmountInCurrency = function(targetCurrency) {
+  const currencyUtils = require('../utils/currencyUtils');
+  
+  if (!currencyUtils.isCurrencySupported(targetCurrency)) {
+    throw new Error(`Currency ${targetCurrency} is not supported`);
+  }
+  
+  return currencyUtils.convertCurrency(this.amount, this.currency, targetCurrency);
+};
+
+// Add method to format amount with currency symbol
+paymentSchema.methods.getFormattedAmount = function() {
+  const currencyUtils = require('../utils/currencyUtils');
+  return currencyUtils.formatCurrencyAmount(this.amount, this.currency);
+};
+
+// Add static method to get payments in a specific currency
+paymentSchema.statics.findByCurrency = function(currencyCode) {
+  return this.find({ currency: currencyCode }).sort({ createdAt: -1 });
 };
 
 const Payment = mongoose.model('Payment', paymentSchema);

@@ -1,5 +1,7 @@
+const currencyUtils = require('../utils/currencyUtils');
+
 const validatePaymentInput = (req, res, next) => {
-  const { orderId, userId, amount, paymentMethod, paymentDetails } = req.body;
+  const { orderId, userId, amount, currency, paymentMethod, paymentDetails } = req.body;
   const errors = {};
 
   // Validate required fields
@@ -23,6 +25,26 @@ const validatePaymentInput = (req, res, next) => {
     errors.amount = 'Amount cannot exceed 1,000,000';
   } else if (!/^\d+(\.\d{1,2})?$/.test(amount.toString())) {
     errors.amount = 'Amount can have at most 2 decimal places';
+  }
+
+  // Validate currency
+  if (!currency) {
+    // Default to USD if not provided
+    req.body.currency = 'USD';
+  } else if (!currencyUtils.isCurrencySupported(currency)) {
+    errors.currency = `Invalid currency code. Valid options are: ${currencyUtils.getCurrencyCodes().join(', ')}`;
+  } else {
+    // Validate amount format for the specific currency
+    const currencyDetails = currencyUtils.getCurrencyDetails(currency);
+    if (currencyDetails && amount !== undefined && amount !== null) {
+      const decimalPlaces = currencyDetails.decimalPlaces;
+      const amountStr = amount.toString();
+      const decimalPart = amountStr.includes('.') ? amountStr.split('.')[1] : '';
+      
+      if (decimalPart.length > decimalPlaces) {
+        errors.amount = `For ${currency}, amount can have at most ${decimalPlaces} decimal place(s)`;
+      }
+    }
   }
 
   if (!paymentMethod) {
@@ -129,10 +151,32 @@ function isValidObjectId(id) {
   }
 }
 
+// Validate currency conversion request
+const validateCurrencyConversion = (req, res, next) => {
+  const { targetCurrency } = req.params;
+  const errors = {};
+
+  if (!targetCurrency) {
+    errors.targetCurrency = 'Target currency is required';
+  } else if (!currencyUtils.isCurrencySupported(targetCurrency)) {
+    errors.targetCurrency = `Invalid currency code. Valid options are: ${currencyUtils.getCurrencyCodes().join(', ')}`;
+  }
+
+  if (Object.keys(errors).length > 0) {
+    return res.status(400).json({
+      message: 'Validation failed',
+      errors
+    });
+  }
+
+  next();
+};
+
 module.exports = {
   validatePaymentInput,
   validateRefundInput,
-  validateStatusUpdate
+  validateStatusUpdate,
+  validateCurrencyConversion
 };
 
 // Made with Bob

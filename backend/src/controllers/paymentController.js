@@ -1,5 +1,6 @@
 const Payment = require('../models/Payment');
 const User = require('../models/User');
+const currencyUtils = require('../utils/currencyUtils');
 
 // Get all payments
 exports.getAllPayments = async (req, res) => {
@@ -273,6 +274,75 @@ exports.generateReceipt = async (req, res) => {
   }
 };
 
+// Get payment amount in a different currency
+exports.getPaymentInCurrency = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { targetCurrency } = req.params;
+    
+    const payment = await Payment.findById(id);
+    if (!payment) {
+      return res.status(404).json({ message: 'Payment not found' });
+    }
+    
+    if (!currencyUtils.isCurrencySupported(targetCurrency)) {
+      return res.status(400).json({
+        message: 'Invalid currency',
+        supportedCurrencies: currencyUtils.getCurrencyCodes()
+      });
+    }
+    
+    try {
+      const convertedAmount = payment.getAmountInCurrency(targetCurrency);
+      const formattedOriginalAmount = currencyUtils.formatCurrencyAmount(payment.amount, payment.currency);
+      const formattedConvertedAmount = currencyUtils.formatCurrencyAmount(convertedAmount, targetCurrency);
+      
+      res.json({
+        originalAmount: payment.amount,
+        originalCurrency: payment.currency,
+        formattedOriginalAmount,
+        convertedAmount,
+        targetCurrency,
+        formattedConvertedAmount,
+        exchangeRate: currencyUtils.exchangeRates[targetCurrency] / currencyUtils.exchangeRates[payment.currency]
+      });
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get payments by currency
+exports.getPaymentsByCurrency = async (req, res) => {
+  try {
+    const { currencyCode } = req.params;
+    
+    if (!currencyUtils.isCurrencySupported(currencyCode)) {
+      return res.status(400).json({
+        message: 'Invalid currency',
+        supportedCurrencies: currencyUtils.getCurrencyCodes()
+      });
+    }
+    
+    const payments = await Payment.findByCurrency(currencyCode);
+    res.json(payments);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Get supported currencies
+exports.getSupportedCurrencies = async (req, res) => {
+  try {
+    const currencies = currencyUtils.getAllCurrencies();
+    res.json(currencies);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // Get payment statistics
 exports.getPaymentStats = async (req, res) => {
   try {
@@ -291,11 +361,17 @@ exports.getPaymentStats = async (req, res) => {
       { $group: { _id: '$currency', totalAmount: { $sum: '$amount' } } }
     ]);
     
+    // Get currency distribution
+    const currencyDistribution = await Payment.aggregate([
+      { $group: { _id: '$currency', count: { $sum: 1 } } }
+    ]);
+    
     res.json({
       totalCount,
       byStatus: statusCounts,
       byMethod: methodCounts,
-      totalAmount
+      totalAmount,
+      byCurrency: currencyDistribution
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
