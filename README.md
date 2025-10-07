@@ -78,6 +78,20 @@ BobFirstWebAPP/
 
 3. Open your browser and navigate to `http://localhost:3000`
 
+## Testing
+
+1. Run backend tests:
+   ```
+   cd backend
+   npm test
+   ```
+
+2. Run frontend tests:
+   ```
+   cd frontend
+   npm test
+   ```
+
 ## Features
 
 - User management system
