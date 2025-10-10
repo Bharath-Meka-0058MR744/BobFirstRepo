@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const connectDB = require('./config/db');
+const api = require('./api');
 
 // Initialize express app
 const app = express();
@@ -16,18 +17,8 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Basic route
-app.get('/api', (req, res) => {
-  res.json({ message: 'Welcome to BobFirstWebAPP API' });
-});
-
-// Routes
-app.use('/api/users', require('./routes/userRoutes'));
-app.use('/api/products', require('./routes/productRoutes'));
-app.use('/api/inventory', require('./routes/inventoryRoutes'));
-app.use('/api/search', require('./routes/searchRoutes'));
-app.use('/api/logistics', require('./routes/logisticsRoutes'));
-app.use('/api/payments', require('./routes/paymentRoutes'));
+// Register all API routes
+api.registerRoutes(app);
 
 // Serve static assets in production
 if (process.env.NODE_ENV === 'production') {
