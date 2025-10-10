@@ -3,6 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const connectDB = require('./config/db');
 const api = require('./api');
+const { setupSwagger } = require('./swagger');
 
 // Initialize express app
 const app = express();
@@ -19,6 +20,9 @@ app.use(express.urlencoded({ extended: true }));
 
 // Register all API routes
 api.registerRoutes(app);
+
+// Setup Swagger documentation
+setupSwagger(app);
 
 // Serve static assets in production
 if (process.env.NODE_ENV === 'production') {
